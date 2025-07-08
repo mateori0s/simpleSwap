@@ -6,34 +6,27 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @title SimpleSwap Smart Contract
 /// @author mateori0s
-/// @notice Implements basic liquidity management and token swap
+/// @notice Implements Uniswap-like add/remove liquidity and token swap logic
 contract SimpleSwap is ERC20 {
-    IERC20 public tokenA;
-    IERC20 public tokenB;
+    /// @notice ERC20 token A
+    IERC20 public immutable tokenA;
+    /// @notice ERC20 token B
+    IERC20 public immutable tokenB;
 
-    /// @notice Initializes the pool with token addresses and sets LP token name and symbol
+    /// @notice Initializes the pool with the token pair and sets LP token details
     /// @param _tokenA Address of token A
     /// @param _tokenB Address of token B
-    constructor(
-        address _tokenA,
-        address _tokenB
-    ) ERC20("SimpleSwap Token", "SST") {
+    constructor(address _tokenA, address _tokenB) ERC20("SimpleSwap Token", "SST") {
         require(_tokenA != _tokenB, "Identical tokens");
         tokenA = IERC20(_tokenA);
         tokenB = IERC20(_tokenB);
     }
 
-    /// @notice Adds liquidity to the pool
-    /// @param amountADesired Amount of token A to add
-    /// @param amountBDesired Amount of token B to add
-    /// @param amountAMin Minimum acceptable amount of token A
-    /// @param amountBMin Minimum acceptable amount of token B
-    /// @param to Address to receive liquidity tokens
-    /// @param deadline Transaction deadline timestamp
-    /// @return amountA Final amount of token A added
-    /// @return amountB Final amount of token B added
-    /// @return liquidity Amount of liquidity tokens minted
+    /// @notice Adds liquidity to the pool and mints LP tokens to `to`
+    /// @dev Calculates proportional contribution based on reserves
     function addLiquidity(
+        address _tokenA,
+        address _tokenB,
         uint256 amountADesired,
         uint256 amountBDesired,
         uint256 amountAMin,
@@ -41,10 +34,13 @@ contract SimpleSwap is ERC20 {
         address to,
         uint256 deadline
     ) external returns (uint256 amountA, uint256 amountB, uint256 liquidity) {
+        require(_tokenA == address(tokenA) && _tokenB == address(tokenB), "Invalid tokens");
         require(block.timestamp <= deadline, "Expired");
 
         uint256 totalLiquidity = totalSupply();
+
         if (totalLiquidity > 0) {
+            // Calculate optimal B given A to maintain price ratio
             uint256 balanceA = tokenA.balanceOf(address(this));
             uint256 balanceB = tokenB.balanceOf(address(this));
 
@@ -60,6 +56,7 @@ contract SimpleSwap is ERC20 {
                 amountB = amountBDesired;
             }
         } else {
+            // First liquidity provision sets the pool ratio
             amountA = amountADesired;
             amountB = amountBDesired;
             liquidity = sqrt(amountA * amountB);
@@ -75,27 +72,25 @@ contract SimpleSwap is ERC20 {
         _mint(to, liquidity);
     }
 
-    /// @notice Removes liquidity from the pool
-    /// @param liquidity Amount of liquidity tokens to burn
-    /// @param amountAMin Minimum acceptable amount of token A
-    /// @param amountBMin Minimum acceptable amount of token B
-    /// @param to Address to receive withdrawn tokens
-    /// @param deadline Transaction deadline timestamp
-    /// @return amountA Final amount of token A returned
-    /// @return amountB Final amount of token B returned
+    /// @notice Removes liquidity from the pool and returns tokens A and B
+    /// @dev Burns LP tokens and transfers proportional amounts
     function removeLiquidity(
+        address _tokenA,
+        address _tokenB,
         uint256 liquidity,
         uint256 amountAMin,
         uint256 amountBMin,
         address to,
         uint256 deadline
     ) external returns (uint256 amountA, uint256 amountB) {
+        require(_tokenA == address(tokenA) && _tokenB == address(tokenB), "Invalid tokens");
         require(block.timestamp <= deadline, "Expired");
 
         uint256 totalLiquidity = totalSupply();
         uint256 balanceA = tokenA.balanceOf(address(this));
         uint256 balanceB = tokenB.balanceOf(address(this));
 
+        // Calculate share of liquidity
         amountA = (liquidity * balanceA) / totalLiquidity;
         amountB = (liquidity * balanceB) / totalLiquidity;
 
@@ -108,20 +103,15 @@ contract SimpleSwap is ERC20 {
         tokenB.transfer(to, amountB);
     }
 
-    /// @notice Swaps exact tokens for another token
-    /// @param amountIn Amount of input token to swap
-    /// @param amountOutMin Minimum acceptable amount of output token
-    /// @param path Address array [tokenIn, tokenOut]
-    /// @param to Address to receive swapped tokens
-    /// @param deadline Transaction deadline timestamp
-    /// @return amounts Array with input and output amounts
+    /// @notice Swaps exact `amountIn` of one token for the other token
+    /// @dev Uses constant product formula without fees
     function swapExactTokensForTokens(
         uint256 amountIn,
         uint256 amountOutMin,
         address[] calldata path,
         address to,
         uint256 deadline
-    ) external returns (uint256[] memory amounts) {
+    ) external {
         require(block.timestamp <= deadline, "Expired");
         require(path.length == 2, "Invalid path");
 
@@ -132,42 +122,39 @@ contract SimpleSwap is ERC20 {
         uint256 reserveOut = tokenOut.balanceOf(address(this));
 
         uint256 amountOut = getAmountOut(amountIn, reserveIn, reserveOut);
-        require(amountOut >= amountOutMin, "Output not min");
+        require(amountOut >= amountOutMin, "Output too low");
 
         tokenIn.transferFrom(msg.sender, address(this), amountIn);
         tokenOut.transfer(to, amountOut);
-
-        amounts = new uint256[](2);
-        amounts[0] = amountIn;
-        amounts[1] = amountOut;
     }
 
-    /// @notice Gets price of tokenA in terms of tokenB
-    function getPrice(
-        address _tokenA,
-        address _tokenB
-    ) public view returns (uint256 price) {
-        uint256 reserveA = IERC20(_tokenA).balanceOf(address(this));
-        uint256 reserveB = IERC20(_tokenB).balanceOf(address(this));
+    /// @notice Returns price of tokenA in terms of tokenB (or vice versa)
+    /// @dev Used for external price queries
+    function getPrice(address _tokenA, address _tokenB) external view returns (uint256 price) {
+        require((_tokenA == address(tokenA) && _tokenB == address(tokenB)) || (_tokenA == address(tokenB) && _tokenB == address(tokenA)), "Invalid tokens");
+
+        uint256 reserveA = tokenA.balanceOf(address(this));
+        uint256 reserveB = tokenB.balanceOf(address(this));
 
         require(reserveA > 0 && reserveB > 0, "No liquidity");
 
-        price = (reserveB * 1e18) / reserveA;
+        if (_tokenA == address(tokenA)) {
+            price = (reserveB * 1e18) / reserveA;
+        } else {
+            price = (reserveA * 1e18) / reserveB;
+        }
     }
 
-    /// @notice Calculates output amount based on reserves
-    function getAmountOut(
-        uint256 amountIn,
-        uint256 reserveIn,
-        uint256 reserveOut
-    ) public pure returns (uint256 amountOut) {
+    /// @notice Computes output amount for a given input and reserves
+    /// @dev Formula: out = (in * reserveOut) / (in + reserveIn)
+    function getAmountOut(uint256 amountIn, uint256 reserveIn, uint256 reserveOut) public pure returns (uint256 amountOut) {
         require(amountIn > 0, "Zero input");
         require(reserveIn > 0 && reserveOut > 0, "No liquidity");
-
         amountOut = (amountIn * reserveOut) / (amountIn + reserveIn);
     }
 
-    /// @notice Utility function for square root calculation
+    /// @notice Calculates square root
+    /// @dev Used to determine initial LP token supply
     function sqrt(uint256 y) internal pure returns (uint256 z) {
         if (y > 3) {
             z = y;

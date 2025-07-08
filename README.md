@@ -1,183 +1,58 @@
 # SimpleSwap Smart Contract
 
-##  Project Description
+This smart contract replicates basic Uniswap V2 functionalities. It allows users to add/remove liquidity and perform token swaps between two ERC-20 tokens using the constant product formula.
 
-**SimpleSwap** is a Solidity smart contract that replicates the basic functionalities of a Uniswap-like decentralized exchange.
-It allows users to:
+## Features
 
-* Add and remove liquidity to a token pair pool.
-* Swap tokens between two ERC20 tokens.
-* Retrieve token prices and calculate output amounts.
+- **Liquidity Provision**: Users can deposit token pairs to the pool and receive LP tokens.
+- **Token Swap**: Swaps between tokenA and tokenB using the constant product formula.
+- **Liquidity Removal**: LP token holders can withdraw their share of the pool.
+- **Price Oracle**: Returns tokenA price in terms of tokenB or vice versa.
+- **Amount Calculation**: Computes how many tokens will be received given reserves.
 
-The contract automatically manages liquidity provider (LP) tokens, which represent the user's share in the pool.
+## Functions
 
----
+### `constructor(address _tokenA, address _tokenB)`
+Initializes the liquidity pool with two distinct ERC-20 tokens.
 
-##  Features
+### `addLiquidity(address _tokenA, address _tokenB, uint amountADesired, uint amountBDesired, uint amountAMin, uint amountBMin, address to, uint deadline)`
+Adds liquidity to the pool and mints LP tokens proportionally.
+- Returns: `amountA`, `amountB`, and `liquidity` minted.
 
-* ✅ Add Liquidity
-* ✅ Remove Liquidity
-* ✅ Token Swapping
-* ✅ Price Retrieval
-* ✅ Swap Output Calculation
-* ✅ Deadline Protection
-* ✅ Proportional Liquidity Management
+### `removeLiquidity(address _tokenA, address _tokenB, uint liquidity, uint amountAMin, uint amountBMin, address to, uint deadline)`
+Removes liquidity and returns the corresponding amount of tokens A and B.
+- Returns: `amountA`, `amountB`
 
----
+### `swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline)`
+Swaps a fixed amount of input token for the output token using reserves.
+- Requires a valid path of exactly two tokens.
 
-## Main Functions
+### `getPrice(address tokenA, address tokenB)`
+Returns the price of `tokenA` in terms of `tokenB`, assuming both tokens are the pool's tokens.
 
-| Function                   | Description                                           |
-| -------------------------- | ----------------------------------------------------- |
-| `addLiquidity`             | Adds liquidity to the token pool and mints LP tokens. |
-| `removeLiquidity`          | Removes liquidity and burns LP tokens.                |
-| `swapExactTokensForTokens` | Swaps a fixed amount of token A for token B.          |
-| `getPrice`                 | Returns the price of token A in terms of token B.     |
-| `getAmountOut`             | Calculates output token amount based on reserves.     |
+### `getAmountOut(uint amountIn, uint reserveIn, uint reserveOut)`
+Calculates the output token amount for a given input using the constant product formula.
 
----
+## Internal Helpers
 
-## Function Details
+### `sqrt(uint y)`
+Computes square root using the Babylonian method. Used for initial liquidity minting.
 
-### 1. `addLiquidity`
+## Notes
 
-```solidity
-function addLiquidity(
-    uint256 amountADesired,
-    uint256 amountBDesired,
-    uint256 amountAMin,
-    uint256 amountBMin,
-    address to,
-    uint256 deadline
-) external returns (uint256 amountA, uint256 amountB, uint256 liquidity)
-```
+- Token addresses must match the pool's tokens; otherwise functions will revert.
+- Liquidity must be added in proportion to current reserves to maintain price.
+- No fee is included in the swap (idealized).
+- Reverts on expiration to prevent front-running.
 
-* Adds liquidity to the pool.
-* Transfers tokens from the user to the pool.
-* Mints LP tokens as proof of liquidity.
-* Parameters:
+## Compatibility
 
-  * `amountADesired` / `amountBDesired`: Tokens the user wants to deposit.
-  * `amountAMin` / `amountBMin`: Minimum accepted amounts to avoid slippage.
-  * `to`: Recipient of LP tokens.
-  * `deadline`: Transaction expiration timestamp.
-
----
-
-### 2. `removeLiquidity`
-
-```solidity
-function removeLiquidity(
-    uint256 liquidity,
-    uint256 amountAMin,
-    uint256 amountBMin,
-    address to,
-    uint256 deadline
-) external returns (uint256 amountA, uint256 amountB)
-```
-
-* Removes liquidity from the pool.
-* Burns LP tokens.
-* Transfers proportional token amounts back to the user.
-* Parameters:
-
-  * `liquidity`: LP tokens to burn.
-  * `amountAMin` / `amountBMin`: Minimum accepted amounts to avoid slippage.
-  * `to`: Recipient of the tokens.
-  * `deadline`: Transaction expiration timestamp.
-
----
-
-### 3. `swapExactTokensForTokens`
-
-```solidity
-function swapExactTokensForTokens(
-    uint256 amountIn,
-    uint256 amountOutMin,
-    address[] calldata path,
-    address to,
-    uint256 deadline
-) external returns (uint256[] memory amounts)
-```
-
-* Swaps a fixed amount of input token for another token.
-* Uses the formula without fees:
-
-  ```
-  amountOut = (amountIn * reserveOut) / (amountIn + reserveIn)
-  ```
-* Parameters:
-
-  * `amountIn`: Exact input token amount.
-  * `amountOutMin`: Minimum output tokens accepted.
-  * `path`: Array of token addresses \[tokenIn, tokenOut].
-  * `to`: Recipient of the output tokens.
-  * `deadline`: Transaction expiration timestamp.
-
----
-
-### 4. `getPrice`
-
-```solidity
-function getPrice(address _tokenA, address _tokenB) public view returns (uint256 price)
-```
-
-* Returns the price of token A in terms of token B using current pool reserves.
-* Calculation:
-
-  ```
-  price = (reserveB * 1e18) / reserveA
-  ```
-
----
-
-### 5. `getAmountOut`
-
-```solidity
-function getAmountOut(
-    uint256 amountIn,
-    uint256 reserveIn,
-    uint256 reserveOut
-) public pure returns (uint256 amountOut)
-```
-
-* Calculates the output token amount based on reserves.
-* Formula:
-
-  ```
-  amountOut = (amountIn * reserveOut) / (amountIn + reserveIn)
-  ```
-
----
-
-### 6. `sqrt`
-
-```solidity
-function sqrt(uint256 y) internal pure returns (uint256 z)
-```
-
-* Internal utility function to calculate square roots.
-* Used to determine initial liquidity when creating a new pool.
-
----
-
-## Security Features
-
-* Deadlines required to protect against stuck transactions.
-* Minimum accepted amounts to prevent slippage.
-* `require` statements placed at the beginning of each function for gas efficiency.
-* Permissions controlled via ERC20 allowances.
-
----
-
-## Technologies Used
-
-* Solidity ^0.8.0
-* OpenZeppelin ERC20 contracts
-
----
+This contract is **compatible with the verifier contract** used in the course for automatic evaluation.
 
 ## Author
 
-**Mateo Rios**
-@mateori0s
+Mateo Rios (@mateori0s)
+
+---
+
+© 2025
